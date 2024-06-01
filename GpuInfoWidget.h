@@ -1,12 +1,25 @@
 #ifndef GPUINFOWIDGET_H
 #define GPUINFOWIDGET_H
 
-#include <QWidget>
-#include <QLineEdit>
-#include <QVBoxLayout>
-#include <QFormLayout>
-#include <QGroupBox>
-#include <QTimer>
+#include <QtCore/qglobal.h>
+
+#if QT_VERSION_MAJOR >= 6
+#include <QtWidgets/QWidget>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QFormLayout>
+#include <QtWidgets/QGroupBox>
+#include <QtCore/QTimer>
+#elif QT_VERSION_MAJOR >= 5
+#include <QtWidgets/QWidget>
+#include <QtWidgets/QLineEdit>
+#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/QFormLayout>
+#include <QtWidgets/QGroupBox>
+#include <QtCore/QTimer>
+#else
+#error Unsupported Qt version
+#endif
 
 class GpuInfoWidget : public QWidget {
     Q_OBJECT
