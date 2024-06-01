@@ -4,6 +4,12 @@
 #include <QTimer>
 #include <QDir>
 #include <QDebug>
+#include <limits>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <QRegularExpression>
+#else
+#include <QRegExp>
+#endif
 
 CpuTemperatureWidget::CpuTemperatureWidget(QWidget *parent) : QWidget(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -49,30 +55,18 @@ void CpuTemperatureWidget::updateTemperatureInfo() {
     // Update minimum and maximum temperature
     if (overallTemp < minTemp || minTemp == std::numeric_limits<double>::max()) {
         minTemp = overallTemp;
-        minTempLabel->setText(QString::number(minTemp, 'f', 2) + " °C");
     }
-    if (overallTemp > maxTemp) {
+    if (overallTemp > maxTemp || maxTemp == std::numeric_limits<double>::min()) {
         maxTemp = overallTemp;
-        maxTempLabel->setText(QString::number(maxTemp, 'f', 2) + " °C");
     }
+    minTempLabel->setText(QString::number(minTemp, 'f', 2) + " °C");
+    maxTempLabel->setText(QString::number(maxTemp, 'f', 2) + " °C");
 
-    // Update per-core temperature
+    // Update core temperatures
     updateCoreTemperatures();
 }
 
-double CpuTemperatureWidget::readTemperature(const QString &filePath) {
-    QFile file(filePath);
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QTextStream in(&file);
-        double temp = in.readLine().toDouble();
-        file.close();
-        return temp;
-    }
-    return 0.0;
-}
-
 void CpuTemperatureWidget::updateCoreTemperatures() {
-    // Clear existing items
     coreTempComboBox->clear();
 
     double totalTemp = 0;
@@ -95,37 +89,57 @@ void CpuTemperatureWidget::updateCoreTemperatures() {
             double coreTemp = readTemperature(tempPath) / 1000.0;
 
             // Extract core number from filename
-            QRegExp regex("temp(\\d+)_input");
-            if (regex.indexIn(tempFile) != -1) {
-                int coreIndex = regex.cap(1).toInt() - 2; // Adjusting index to start from core0
-                if (coreIndex >= 0) {
-                    coreTemps[coreIndex] = coreTemp;
+            #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            QRegularExpression regex("temp(\\d+)_input");
+            QRegularExpressionMatch match = regex.match(tempFile);
+            if (match.hasMatch()) {
+                int coreIndex = match.captured(1).toInt() - 2; // Adjusting index to start from core0
+                #else
+                QRegExp regex("temp(\\d+)_input");
+                if (regex.indexIn(tempFile) != -1) {
+                    int coreIndex = regex.cap(1).toInt() - 2; // Adjusting index to start from core0
+                    #endif
+                    if (coreIndex >= 0) {
+                        coreTemps[coreIndex] = coreTemp;
+                    }
                 }
             }
         }
-    }
 
-    QMapIterator<int, double> i(coreTemps);
-    while (i.hasNext()) {
-        i.next();
-        coreTempComboBox->addItem(QString("Core %1: %2 °C").arg(i.key()).arg(i.value(), 0, 'f', 2));
+        QMapIterator<int, double> i(coreTemps);
+        while (i.hasNext()) {
+            i.next();
+            coreTempComboBox->addItem(QString("Core %1: %2 °C").arg(i.key()).arg(i.value(), 0, 'f', 2));
 
-        totalTemp += i.value();
-        coreCount++;
+            totalTemp += i.value();
+            coreCount++;
 
-        if (i.value() < minCoreTemp) {
-            minCoreTemp = i.value();
+            if (i.value() < minCoreTemp) {
+                minCoreTemp = i.value();
+            }
+
+            if (i.value() > maxCoreTemp) {
+                maxCoreTemp = i.value();
+            }
         }
 
-        if (i.value() > maxCoreTemp) {
-            maxCoreTemp = i.value();
+        if (coreCount > 0) {
+            double avgCoreTemp = totalTemp / coreCount;
+            minTempLabel->setText(QString::number(minCoreTemp, 'f', 2) + " °C");
+            maxTempLabel->setText(QString::number(maxCoreTemp, 'f', 2) + " °C");
+            overallTempLabel->setText(QString::number(avgCoreTemp, 'f', 2) + " °C");
         }
     }
 
-    if (coreCount > 0) {
-        double avgCoreTemp = totalTemp / coreCount;
-        minTempLabel->setText(QString::number(minCoreTemp, 'f', 2) + " °C");
-        maxTempLabel->setText(QString::number(maxCoreTemp, 'f', 2) + " °C");
-        overallTempLabel->setText(QString::number(avgCoreTemp, 'f', 2) + " °C");
+    double CpuTemperatureWidget::readTemperature(const QString &filePath) {
+        QFile file(filePath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qWarning() << "Cannot open file for reading:" << filePath;
+            return 0;
+        }
+
+        QTextStream in(&file);
+        double temp = in.readLine().toDouble();
+        file.close();
+        return temp;
     }
-}
