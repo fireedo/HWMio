@@ -17,15 +17,15 @@ private slots:
     void updateSystemInfo();
     void updateCoreClockComboBox();
     void updateCoreClock(int index);
-    void startReadingWattage();
-    void startReadingVcore();
-    void updateWattageInfo();
-    void updateVcoreInfo();
+    void showPasswordDialog();
+    void handlePasswordEntered();
+    void updateWattageVoltageInfo();
 
 private:
     bool isRootPrivilegeObtained();
     double readCurrentEnergy();
     double readCurrentVcore();
+    QString executeShellCommand(const QString &command);
 
     QLineEdit *cpuNameLabel;
     QLineEdit *cpuFreqLabel;
@@ -40,18 +40,23 @@ private:
     QLineEdit *minVcoreLabel;
     QLineEdit *maxVcoreLabel;
     QComboBox *coreClockComboBox;
+    QPushButton *showWattageVoltageButton;
+    QDialog *passwordDialog;
+    QLineEdit *passwordInput;
+    QPushButton *passwordSubmitButton;
+    QTimer *wattageVoltageTimer;
 
-    int minFreq = 0;
-    int maxFreq = 0;
+    double minFreq = 0;
+    double maxFreq = 0;
     double minWattage = 0;
     double maxWattage = 0;
     double totalWattage = 0;
     int wattageReadings = 0;
-    double previousEnergyJoules = 0;
-    QTime previousTime;
     double minVcore = 0;
     double maxVcore = 0;
-    double previousVcore = 0;
+    QString rootPassword;
+    double previousEnergyJoules = 0;
+    QTime previousTime;
 };
 
 #endif // SYSTEMINFOWIDGET_H
