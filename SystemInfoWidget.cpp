@@ -2,6 +2,9 @@
 #include <unistd.h>
 #include <QProcess>
 #include <QGroupBox>
+#include <QMessageBox>
+#include <iostream>
+#include <cstdio>
 
 SystemInfoWidget::SystemInfoWidget(QWidget *parent) : QWidget(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -34,6 +37,9 @@ SystemInfoWidget::SystemInfoWidget(QWidget *parent) : QWidget(parent) {
     maxVcoreLabel = new QLineEdit();
     maxVcoreLabel->setReadOnly(true);
 
+    showWattageVoltageButton = new QPushButton("Show Wattage/Voltage");
+    connect(showWattageVoltageButton, &QPushButton::clicked, this, &SystemInfoWidget::showPasswordDialog);
+
     cpuInfoLayout->addRow("Nama CPU:", cpuNameLabel);
     cpuInfoLayout->addRow("Frekuensi CPU:", cpuFreqLabel);
     cpuInfoLayout->addRow("Minimum Frequency:", minFreqLabel);
@@ -46,6 +52,7 @@ SystemInfoWidget::SystemInfoWidget(QWidget *parent) : QWidget(parent) {
     cpuInfoLayout->addRow("VCore Voltage:", vcoreLabel);
     cpuInfoLayout->addRow("Minimum VCore:", minVcoreLabel);
     cpuInfoLayout->addRow("Maximum VCore:", maxVcoreLabel);
+    cpuInfoLayout->addRow(showWattageVoltageButton);
     cpuInfoGroup->setLayout(cpuInfoLayout);
     mainLayout->addWidget(cpuInfoGroup);
 
@@ -56,16 +63,13 @@ SystemInfoWidget::SystemInfoWidget(QWidget *parent) : QWidget(parent) {
 
     setLayout(mainLayout);
 
-    // Set timer untuk memperbarui real-time clock dan frekuensi CPU setiap 0,5 detik
-    QTimer *timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, &SystemInfoWidget::updateSystemInfo);
-    timer->start(500); // Interval dalam milidetik
-
-    // Set timer untuk mulai membaca wattage dan vcore setelah 0,2 detik
-    QTimer::singleShot(200, this, &SystemInfoWidget::startReadingWattage);
-    QTimer::singleShot(200, this, &SystemInfoWidget::startReadingVcore);
+    wattageVoltageTimer = new QTimer(this);
+    connect(wattageVoltageTimer, &QTimer::timeout, this, &SystemInfoWidget::updateWattageVoltageInfo);
 
     updateSystemInfo();
+
+    previousEnergyJoules = readCurrentEnergy(); // Initialize the previous energy value
+    previousTime = QTime::currentTime(); // Initialize the previous time value
 }
 
 void SystemInfoWidget::updateSystemInfo() {
@@ -169,106 +173,117 @@ void SystemInfoWidget::updateCoreClock(int index) {
     qDebug() << "Selected Core Info:" << selectedCoreInfo;
 }
 
-void SystemInfoWidget::startReadingWattage() {
-    // Set timer untuk memperbarui wattage setiap 0,5 detik
-    QTimer *wattageTimer = new QTimer(this);
-    connect(wattageTimer, &QTimer::timeout, this, &SystemInfoWidget::updateWattageInfo);
-    wattageTimer->start(500); // Interval dalam milidetik
+void SystemInfoWidget::showPasswordDialog() {
+    passwordDialog = new QDialog(this);
+    passwordDialog->setWindowTitle("Enter Root Password");
 
-    // Inisialisasi waktu dan energi sebelumnya
-    previousTime = QTime::currentTime();
-    previousEnergyJoules = readCurrentEnergy();
+    QVBoxLayout *layout = new QVBoxLayout(passwordDialog);
+    QLabel *label = new QLabel("Root password is required to access CPU wattage and voltage information:");
+    passwordInput = new QLineEdit();
+    passwordInput->setEchoMode(QLineEdit::Password);
+
+    passwordSubmitButton = new QPushButton("Submit");
+    connect(passwordSubmitButton, &QPushButton::clicked, this, &SystemInfoWidget::handlePasswordEntered);
+
+    layout->addWidget(label);
+    layout->addWidget(passwordInput);
+    layout->addWidget(passwordSubmitButton);
+
+    passwordDialog->setLayout(layout);
+    passwordDialog->exec();
+}
+
+void SystemInfoWidget::handlePasswordEntered() {
+    rootPassword = passwordInput->text();
+    wattageVoltageTimer->start(1000); // Update every second
+    passwordDialog->close();
+    updateWattageVoltageInfo();
+}
+
+void SystemInfoWidget::updateWattageVoltageInfo() {
+    qDebug() << "Updating wattage and voltage information.";
+
+    if (rootPassword.isEmpty()) {
+        showPasswordDialog();
+        return;
+    }
+
+    // Read current energy
+    QString wattageCommand = QString("echo %1 | sudo -S cat /sys/class/powercap/intel-rapl:0/energy_uj").arg(rootPassword);
+    QString wattageOutput = executeShellCommand(wattageCommand);
+    qDebug() << "Wattage output:" << wattageOutput;
+
+    bool ok;
+    double currentEnergyJoules = wattageOutput.trimmed().toDouble(&ok) / 1000000.0; // Convert to joules
+    if (ok) {
+        QTime currentTime = QTime::currentTime();
+        int elapsedTimeMs = previousTime.msecsTo(currentTime);
+        double currentPowerWatts = (currentEnergyJoules - previousEnergyJoules) * 1000.0 / elapsedTimeMs; // Power in watts
+        previousEnergyJoules = currentEnergyJoules;
+        previousTime = currentTime;
+
+        wattageLabel->setText(QString::number(currentPowerWatts, 'f', 2) + " W");
+
+        // Update wattage min/max/avg values
+        if (currentPowerWatts < minWattage || minWattage == 0) {
+            minWattage = currentPowerWatts;
+            minWattageLabel->setText(QString::number(minWattage, 'f', 2) + " W");
+        }
+        if (currentPowerWatts > maxWattage) {
+            maxWattage = currentPowerWatts;
+            maxWattageLabel->setText(QString::number(maxWattage, 'f', 2) + " W");
+        }
+
+        totalWattage += currentPowerWatts;
+        wattageReadings++;
+        double avgWattage = totalWattage / wattageReadings;
+        avgWattageLabel->setText(QString::number(avgWattage, 'f', 2) + " W");
+    } else {
+        wattageLabel->setText("Error: Unable to read wattage");
+    }
+
+    // Read VCore
+    QString vcoreCommand = QString("echo %1 | sudo -S rdmsr 0x198 -u --bitfield 47:32").arg(rootPassword);
+    QString vcoreOutput = executeShellCommand(vcoreCommand);
+    qDebug() << "VCore output:" << vcoreOutput;
+
+    double voltageRaw = vcoreOutput.trimmed().toInt(&ok);
+    if (ok) {
+        double voltage = voltageRaw / 8192.0; // Convert to volts
+        vcoreLabel->setText(QString::number(voltage, 'f', 2) + " V");
+
+        // Update minimum and maximum VCore
+        if (voltage < minVcore || minVcore == 0) {
+            minVcore = voltage;
+            minVcoreLabel->setText(QString::number(minVcore, 'f', 2) + " V");
+        }
+        if (voltage > maxVcore) {
+            maxVcore = voltage;
+            maxVcoreLabel->setText(QString::number(maxVcore, 'f', 2) + " V");
+        }
+    } else {
+        vcoreLabel->setText("Error: Unable to read voltage");
+    }
 }
 
 double SystemInfoWidget::readCurrentEnergy() {
-    QFile energyFile("/sys/class/powercap/intel-rapl:0/energy_uj");
-    if (energyFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QTextStream in(&energyFile);
-        double currentEnergyMicroJoules = in.readLine().toDouble();
-        energyFile.close();
-        return currentEnergyMicroJoules / 1000000.0; // Convert to joules
+    QString command = "cat /sys/class/powercap/intel-rapl:0/energy_uj";
+    QString output = executeShellCommand(command);
+    bool ok;
+    double energy = output.trimmed().toDouble(&ok);
+    if (ok) {
+        return energy / 1000000.0; // Convert to joules
     }
     return 0.0;
 }
 
-void SystemInfoWidget::updateWattageInfo() {
-    double currentEnergyJoules = readCurrentEnergy();
-    QTime currentTime = QTime::currentTime();
-    int elapsedTime = previousTime.msecsTo(currentTime); // Elapsed time in milliseconds
-
-    if (elapsedTime > 0) {
-        double powerWatts = ((currentEnergyJoules - previousEnergyJoules) / (elapsedTime / 1000.0)); // Convert to watts
-
-        // Display the wattage information in the GUI with appropriate units
-        wattageLabel->setText(QString::number(powerWatts, 'f', 2) + " W");
-
-        // Update minimum wattage
-        if (powerWatts < minWattage || minWattage == 0) {
-            minWattage = powerWatts;
-            minWattageLabel->setText(QString::number(minWattage, 'f', 2) + " W");
-        }
-        // Update maximum wattage
-        if (powerWatts > maxWattage) {
-            maxWattage = powerWatts;
-            maxWattageLabel->setText(QString::number(maxWattage, 'f', 2) + " W");
-        }
-        // Update average wattage
-        totalWattage += powerWatts;
-        wattageReadings++;
-        double avgWattage = totalWattage / wattageReadings;
-        avgWattageLabel->setText(QString::number(avgWattage, 'f', 2) + " W");
-
-        previousEnergyJoules = currentEnergyJoules;
-        previousTime = currentTime;
-    }
-}
-
-void SystemInfoWidget::startReadingVcore() {
-    // Set timer untuk memperbarui vcore setiap 0,5 detik
-    QTimer *vcoreTimer = new QTimer(this);
-    connect(vcoreTimer, &QTimer::timeout, this, &SystemInfoWidget::updateVcoreInfo);
-    vcoreTimer->start(500); // Interval dalam milidetik
-
-    // Inisialisasi vcore sebelumnya
-    previousVcore = readCurrentVcore();
-}
-
-double SystemInfoWidget::readCurrentVcore() {
+QString SystemInfoWidget::executeShellCommand(const QString &command) {
     QProcess process;
-    QStringList arguments;
-    arguments << "rdmsr" << "0x198" << "-u" << "--bitfield" << "47:32";
-    process.start("pkexec", arguments);
+    process.start("sh", QStringList() << "-c" << command);
     process.waitForFinished();
     QString output = process.readAllStandardOutput();
-    bool ok;
-    double voltageRaw = output.trimmed().toInt(&ok);
-    if (ok) {
-        double voltage = voltageRaw / 8192.0; // Convert to volts
-        return voltage;
-    } else {
-        return 0.0;
+    if (output.isEmpty()) {
+        output = process.readAllStandardError();
     }
-}
-
-void SystemInfoWidget::updateVcoreInfo() {
-    double currentVcore = readCurrentVcore();
-
-    // Display the vcore information in the GUI with appropriate units
-    vcoreLabel->setText(QString::number(currentVcore, 'f', 2) + " V");
-
-    // Update minimum vcore
-    if (currentVcore < minVcore || minVcore == 0) {
-        minVcore = currentVcore;
-        minVcoreLabel->setText(QString::number(minVcore, 'f', 2) + " V");
-    }
-    // Update maximum vcore
-    if (currentVcore > maxVcore) {
-        maxVcore = currentVcore;
-        maxVcoreLabel->setText(QString::number(maxVcore, 'f', 2) + " V");
-    }
-}
-
-bool SystemInfoWidget::isRootPrivilegeObtained() {
-    // Check if the process is running with root privileges
-    return (geteuid() == 0);
+    return output;
 }
