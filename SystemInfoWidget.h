@@ -2,18 +2,16 @@
 #define SYSTEMINFOWIDGET_H
 
 #include <QtWidgets>
-#include <QProcess>
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QDebug>
-#include <unistd.h> // Include unistd.h for geteuid()
+#include <QLineEdit>
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QComboBox>
 #include <QTime>
 
 class SystemInfoWidget : public QWidget {
     Q_OBJECT
 public:
-    SystemInfoWidget(QWidget *parent = nullptr);
+    explicit SystemInfoWidget(QWidget *parent = nullptr);
 
 private slots:
     void updateSystemInfo();
