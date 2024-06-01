@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=HWMio
+Comment=Hardware Monitoring Tool
+Exec=/usr/bin/hwmio
+Icon=hwmio
+Terminal=false
+Categories=Utility;
