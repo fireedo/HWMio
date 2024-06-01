@@ -1,4 +1,7 @@
 #include "SystemInfoWidget.h"
+#include <unistd.h>
+#include <QProcess>
+#include <QGroupBox>
 
 SystemInfoWidget::SystemInfoWidget(QWidget *parent) : QWidget(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -85,7 +88,7 @@ void SystemInfoWidget::updateSystemInfo() {
     // If CPU name not found in /proc/cpuinfo, try lscpu
     if (cpuName.isEmpty()) {
         QProcess process;
-        process.start("lscpu");
+        process.start("lscpu", QStringList());
         process.waitForFinished();
         QByteArray result = process.readAllStandardOutput();
         QStringList lines = QString(result).split('\n', Qt::SkipEmptyParts);
