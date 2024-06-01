@@ -54,7 +54,6 @@ GpuInfoWidget::GpuInfoWidget(QWidget *parent) : QWidget(parent) {
     gpuInfoLayout->addRow("Max Wattage:", maxWattageLabel);
     gpuInfoGroup->setLayout(gpuInfoLayout);
     mainLayout->addWidget(gpuInfoGroup);
-
     setLayout(mainLayout);
 
     QTimer *timer = new QTimer(this);
@@ -72,7 +71,11 @@ void GpuInfoWidget::updateGpuInfo() {
     process.start("nvidia-smi", arguments);
     process.waitForFinished();
     QString output = process.readAllStandardOutput();
+    #if QT_VERSION_MAJOR >= 6
+    QStringList lines = output.split("\n", Qt::SkipEmptyParts);
+    #else
     QStringList lines = output.split("\n", QString::SkipEmptyParts);
+    #endif
 
     if (!lines.isEmpty()) {
         QStringList values = lines[0].split(", ");
